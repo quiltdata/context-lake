@@ -680,3 +680,24 @@ def test_publication_rejects_log_inside_source_before_any_push(helpers, tmp_path
     assert exc.value.code == 2
     assert sorted(p.name for p in export.iterdir()) == ['document.txt']
     assert (export / 'document.txt').read_text() == 'Source document'
+
+
+
+@pytest.mark.parametrize('target', ['plan', 'readme'])
+def test_publication_log_cannot_modify_plan_or_external_readme(helpers, tmp_path, monkeypatch, target):
+    export = tmp_path / 'export'
+    export.mkdir()
+    (export / 'document.txt').write_text('Source document')
+    readme = tmp_path / 'README.md'
+    readme.write_text('Approved external README')
+    plan = tmp_path / 'plan.csv'
+    plan.write_text('name,source,readme\ncontext/example,export,README.md\n')
+    before = (plan.read_bytes(), readme.read_bytes())
+    log = plan if target == 'plan' else readme
+    def forbidden(*args):
+        pytest.fail('source input alias must fail before package construction')
+    monkeypatch.setattr(helpers['publish'], 'build', forbidden)
+    with pytest.raises(SystemExit) as exc:
+        helpers['publish'].main([str(plan), '--registry', 's3://test-lake', '--yes', '--log', str(log)])
+    assert exc.value.code == 2
+    assert (plan.read_bytes(), readme.read_bytes()) == before

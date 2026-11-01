@@ -83,6 +83,10 @@ def main(argv=None):
     log_path = Path(args.log).expanduser().resolve()
     if log_path.exists() and log_path.stat().st_nlink > 1:
         parser.error('--log must not be a hard-linked file')
+    protected_inputs = [Path(args.plan).expanduser().resolve()]
+    protected_inputs.extend(Path(row['readme']).resolve() for row in rows if row.get('readme'))
+    if log_path in protected_inputs:
+        parser.error('--log must not replace the publication plan or a README input')
     for row in rows:
         if not row['source'].startswith('s3://'):
             source = Path(row['source']).resolve()

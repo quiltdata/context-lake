@@ -135,4 +135,5 @@ Extraction limits apply to complete output excerpts, including VCF column header
 DOCX XML has a separate 30 MB expanded-member limit and bounded read; oversize
 members fail rather than expanding unbounded compressed input. Transcript and
 index writes refuse symbolic/hard-linked destinations. Publication logs must be
-outside every local source directory so repeated publishes cannot ingest them.
+outside every local source directory and must not alias a plan/README input,
+so repeated publishes cannot ingest logs or modify approved inputs.
