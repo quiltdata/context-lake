@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "input.schema.json",
+  "title": "Summarizer input row",
+  "description": "One row of the summarizer's input table: one distinct file, or one file kind represented by a sample. Stored as CSV; list-valued cells hold JSON arrays.",
+  "type": "object",
+  "required": [
+    "unit_id",
+    "prefix",
+    "unit",
+    "file_type",
+    "members",
+    "example_keys",
+    "size_bytes",
+    "excerpt_method",
+    "excerpt",
+    "mentions"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "unit_id": {
+      "type": "string",
+      "description": "s3:// URI of the file, or of the prefix plus a glob for a file kind"
+    },
+    "prefix": {
+      "type": "string",
+      "description": "s3:// URI of the prefix the unit sits in"
+    },
+    "unit": {
+      "type": "string",
+      "description": "file name, or the glob that defines the file kind"
+    },
+    "file_type": {
+      "type": "string",
+      "description": "lower-case file extension of the sampled file"
+    },
+    "members": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "number of objects the row stands for"
+    },
+    "example_keys": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 3,
+      "description": "up to three file names from the unit"
+    },
+    "size_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "size of the sampled file"
+    },
+    "excerpt_method": {
+      "type": "string",
+      "description": "how code produced the excerpt, including any truncation"
+    },
+    "excerpt": {
+      "type": "string",
+      "description": "what code extracted from the sampled file for a model to read (capped by make_inputs.py --excerpt-chars; 0 = uncapped)"
+    },
+    "mentions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 5,
+      "description": "passages from README, Markdown or XML files in this prefix or up to two levels above that name the unit, each prefixed with that file's key"
+    },
+    "parent": {
+      "type": "string",
+      "description": "optional (--parent-abstract): title and abstract of the JATS article in the same folder"
+    }
+  }
+}

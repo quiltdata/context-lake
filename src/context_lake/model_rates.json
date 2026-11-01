@@ -1,0 +1,70 @@
+{
+ "_note": "USD per 1M tokens, on-demand standard tier, PUBLIC AWS list prices only (AWS Price List API, service AmazonBedrock / AmazonBedrockFoundationModels, as fetched 2026-10-24). Estimates only: prices change and vary by region and cross-region profile; check https://aws.amazon.com/bedrock/pricing/ before relying on them. Unknown models are costed as null.",
+ "fetched": "2026-10-24",
+ "bedrock": {
+  "us.meta.llama4-maverick-17b-instruct-v1:0": {
+   "input": 0.24,
+   "output": 0.97
+  },
+  "us.meta.llama4-scout-17b-instruct-v1:0": {
+   "input": 0.17,
+   "output": 0.66
+  },
+  "us.amazon.nova-2-lite-v1:0": {
+   "input": 0.33,
+   "output": 2.75
+  },
+  "deepseek.v3.2": {
+   "input": 0.62,
+   "output": 1.85
+  },
+  "qwen.qwen3-235b-a22b-2507-v1:0": {
+   "input": 0.22,
+   "output": 0.88
+  },
+  "mistral.mistral-large-3-675b-instruct": {
+   "input": 0.5,
+   "output": 1.5
+  },
+  "openai.gpt-oss-120b-1:0": {
+   "input": 0.15,
+   "output": 0.6
+  },
+  "openai.gpt-oss-20b-1:0": {
+   "input": 0.07,
+   "output": 0.3
+  },
+  "nvidia.nemotron-super-3-120b": {
+   "input": 0.15,
+   "output": 0.65
+  },
+  "nvidia.nemotron-nano-3-30b": {
+   "input": 0.06,
+   "output": 0.24
+  },
+  "us.anthropic.claude-opus-4-8": {
+   "input": 5.5,
+   "output": 27.5
+  },
+  "global.anthropic.claude-opus-4-8": {
+   "input": 5.0,
+   "output": 25.0
+  },
+  "us.anthropic.claude-opus-5-5": {
+   "input": 4.4,
+   "output": 22.0
+  },
+  "global.anthropic.claude-opus-5-5": {
+   "input": 4.0,
+   "output": 20.0
+  },
+  "us.anthropic.claude-sonnet-5-5": {
+   "input": 2.2,
+   "output": 11.0
+  },
+  "global.anthropic.claude-sonnet-5-5": {
+   "input": 2.0,
+   "output": 10.0
+  }
+ }
+}
