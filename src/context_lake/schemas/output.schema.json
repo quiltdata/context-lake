@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "output.schema.json",
+  "title": "Summarizer output row (file summary)",
+  "description": "One row of the summarizer's output table, answering one input row. Stored as CSV; list-valued cells hold JSON arrays. Every evidence quote must appear verbatim in that input row's excerpt or mentions.",
+  "type": "object",
+  "required": ["unit_id", "what", "summary", "about", "entities", "refers_to", "evidence"],
+  "additionalProperties": false,
+  "properties": {
+    "unit_id": {"type": "string", "description": "copied from the input row"},
+    "what": {
+      "enum": ["readme", "manifest", "data-table", "data-record", "metadata", "parameters", "config", "article", "supplement", "variants", "code", "log", "other"],
+      "description": "what the unit is"
+    },
+    "summary": {"type": "string", "minLength": 1, "maxLength": 300, "description": "one or two plain sentences on what the unit is and contains"},
+    "about": {"type": "array", "items": {"type": "string"}, "description": "subject terms: organism, cell line, structure, assay, compound, disease, method"},
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "value"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {"enum": ["person", "organization", "software", "instrument", "identifier", "license", "url", "date"]},
+          "value": {"type": "string", "minLength": 1}
+        }
+      },
+      "description": "named things the unit states"
+    },
+    "refers_to": {"type": "array", "items": {"type": "string"}, "description": "other files, folders or file patterns the unit names"},
+    "evidence": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1, "maxLength": 200}, "description": "verbatim quotes from the excerpt or mentions that support the row"}
+  }
+}
