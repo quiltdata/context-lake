@@ -68,7 +68,7 @@ def main(inputs_path, outputs_path):
         elif uid in seen:
             problems.append("duplicate unit_id")
         else:
-            source = inputs[uid]["excerpt"] + " " + " ".join(json.loads(inputs[uid].get("mentions") or "[]")) + " " + inputs[uid].get("parent", "")
+            source = inputs[uid]["excerpt"] + " " + " ".join(json.loads(inputs[uid].get("mentions") or "[]"))
             for q in row["evidence"] if isinstance(row.get("evidence"), list) else []:
                 if not isinstance(q, str) or not quote_found(q, source):
                     problems.append(f"quote not found: {str(q)[:60]!r}")

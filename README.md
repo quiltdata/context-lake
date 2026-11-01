@@ -48,7 +48,8 @@ enter the content manifest. Empty directories are not materialized.
 be retried safely. Snapshots live in `lake/revisions/<sha256>/files/`, with a provenance manifest
 containing source identity, logical paths, sizes and SHA-256 hashes. `CURRENT.json`
 is atomically promoted after copying and checking the new revision. A failed copy
-leaves the previous pointer intact. The source is never written. Source/output
+leaves the previous pointer intact. An unchanged verified snapshot is reused
+without allocating a staging copy or rewriting its pointer. The source is never written. Source/output
 trees must be separate; symlinks and unmanaged nonempty destinations are rejected.
 Use one writer per output directory; multi-process coordination is not implemented.
 Storage cleanup and retention policies are not yet automated.
@@ -129,3 +130,9 @@ core-only environment, and runs a deterministic workflow outside the checkout.
 Tests use synthetic data and emulated S3; no live credentials or model calls.
 MIT licensed. Interfaces are preview quality; provenance/fidelity tests are
 retained while the package API evolves.
+
+Extraction limits apply to complete output excerpts, including VCF column headers.
+DOCX XML has a separate 30 MB expanded-member limit and bounded read; oversize
+members fail rather than expanding unbounded compressed input. Transcript and
+index writes refuse symbolic/hard-linked destinations. Publication logs must be
+outside every local source directory so repeated publishes cannot ingest them.

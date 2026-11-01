@@ -330,3 +330,21 @@ def test_any_explicit_input_format_requires_input(tools, monkeypatch, input_form
     with pytest.raises(SystemExit) as exc:
         tools.parser.main(['--recording-id', '123', '--input-format', input_format])
     assert exc.value.code == 2
+
+
+@pytest.mark.parametrize('link', ['symlink', 'hardlink'])
+def test_linked_export_and_index_destinations_never_modify_archive(tools, tmp_path, link):
+    archive = tmp_path / 'archive.md'
+    archive.write_text('Archived source text')
+    transcript = tmp_path / 'output.md'
+    index = tmp_path / 'INDEX.md'
+    for target in [transcript, index]:
+        if link == 'symlink':
+            target.symlink_to(archive)
+        else:
+            target.hardlink_to(archive)
+    with pytest.raises(tools.parser.TranscriptFormatError, match='linked'):
+        tools.parser.write_new_file(transcript, 'new transcript', overwrite=True)
+    with pytest.raises(tools.index.TranscriptIndexError, match='linked'):
+        tools.index.write_index(tmp_path, 'new index', overwrite=True)
+    assert archive.read_text() == 'Archived source text'

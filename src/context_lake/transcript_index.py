@@ -407,6 +407,8 @@ def render_index(
 def write_index(output_dir: Path, content: str, *, overwrite: bool) -> Path:
     """Write INDEX.md beneath an output root without silent replacement."""
     target = output_dir / "INDEX.md"
+    if target.is_symlink() or (target.exists() and target.stat().st_nlink > 1):
+        raise TranscriptIndexError(f"index destination must not be linked: {target}")
     target.parent.mkdir(parents=True, exist_ok=True)
     if overwrite:
         target.write_text(content, encoding="utf-8", newline="\n")

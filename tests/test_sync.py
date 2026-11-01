@@ -154,3 +154,19 @@ def test_reusing_revision_rejects_unmanifested_content(tmp_path):
     unlisted.write_text('unmanifested')
     with pytest.raises(sync.SyncError, match='unexpected'):
         sync.apply(source, output, 'example')
+
+
+def test_unchanged_apply_does_not_copy_or_allocate_staging(tmp_path, monkeypatch):
+    source = tmp_path / 'source'
+    source.mkdir()
+    (source / 'file').write_text('original')
+    output = tmp_path / 'lake'
+    first = sync.apply(source, output, 'example')
+    def forbidden(*args, **kwargs):
+        pytest.fail('unchanged verified revision must not copy or allocate temporary files')
+    monkeypatch.setattr(sync.shutil, 'copyfile', forbidden)
+    monkeypatch.setattr(sync.tempfile, 'mkdtemp', forbidden)
+    monkeypatch.setattr(sync.tempfile, 'mkstemp', forbidden)
+    again = sync.apply(source, output, 'example')
+    assert again['revision'] == first['revision']
+    assert again['added'] == again['changed'] == again['removed'] == []

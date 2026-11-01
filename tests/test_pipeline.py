@@ -575,3 +575,108 @@ def test_billed_invalid_json_keeps_usage_on_retry(helpers, monkeypatch, adapter,
     assert record['cost_usd'] == 0.002
     assert output == ([valid] if recover else [])
     assert bool(record['error']) is not recover
+
+
+def test_docx_expanded_member_limit_prevents_decompression(helpers, monkeypatch):
+    import io
+    import zipfile
+    extract = helpers['make_inputs']
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('word/document.xml', '<w:p><w:t>' + 'x' * 10000 + '</w:t></w:p>')
+    raw = data.getvalue()
+    monkeypatch.setattr(extract, 'get', lambda *args: raw)
+    monkeypatch.setattr(extract, 'DOCX_XML_MAX_BYTES', 100)
+    def forbidden(*args):
+        pytest.fail('oversized member must fail before decompression')
+    monkeypatch.setattr(zipfile.ZipFile, 'open', forbidden)
+    with pytest.raises(ValueError, match='expanded-size'):
+        extract.excerpt('bucket', 'archive.docx', len(raw))
+
+
+def test_docx_member_read_is_bounded_even_if_metadata_is_wrong(helpers, monkeypatch):
+    extract = helpers['make_inputs']
+    monkeypatch.setattr(extract, 'DOCX_XML_MAX_BYTES', 100)
+    monkeypatch.setattr(extract, 'get', lambda *args: b'zip')
+    class Stream:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def read(self, limit):
+            assert limit == 101
+            return b'x' * limit
+    class Archive:
+        def __init__(self, *args):
+            pass
+        def getinfo(self, name):
+            return Namespace(file_size=1)
+        def open(self, member):
+            return Stream()
+    monkeypatch.setattr(extract.zipfile, 'ZipFile', Archive)
+    with pytest.raises(ValueError, match='expanded-size'):
+        extract.excerpt('bucket', 'archive.docx', 3)
+
+
+def test_vcf_wide_column_header_respects_complete_excerpt_cap(helpers, monkeypatch):
+    extract = helpers['make_inputs']
+    content = ('##fileformat=VCFv4.2\n#CHROM\tPOS\t' + '\t'.join('sample' + str(n) for n in range(1000)) + '\n').encode()
+    monkeypatch.setattr(extract, 'get', lambda *args: content)
+    extract.EXCERPT_CHARS = 100
+    method, text = extract.excerpt('bucket', 'wide.vcf', len(content))
+    assert len(text) == 100 and 'truncated' in method
+    extract.EXCERPT_CHARS = 0
+    _, full = extract.excerpt('bucket', 'wide.vcf', len(content))
+    assert 'sample999' in full
+
+
+def test_parent_only_quote_is_rejected_by_runner_and_verifier(helpers, tmp_path):
+    row = batch_row('A', 'Direct excerpt.')
+    row['parent'] = 'Evidence only in parent.'
+    valid = dict(unit_id='A', what='article', summary='An article.', about=[],
+                 entities=[], refers_to=[], evidence=['Evidence only in parent.'])
+    class Backend:
+        def call(self, rows):
+            return [valid], {'cost_usd': 0}
+    record, output = helpers['run_model'].call(Backend(), Namespace(model='test'), 0, ('data/', 'txt'), [row])
+    assert record['error'] and not output
+    inputs, outputs = tmp_path / 'inputs.csv', tmp_path / 'outputs.csv'
+    with inputs.open('w', newline='') as stream:
+        writer = csv.DictWriter(stream, fieldnames=list(row))
+        writer.writeheader()
+        writer.writerow(row)
+    with outputs.open('w', newline='') as stream:
+        writer = csv.DictWriter(stream, fieldnames=list(valid))
+        writer.writeheader()
+        writer.writerow({key: json.dumps(value) if isinstance(value, list) else value for key, value in valid.items()})
+    with pytest.raises(SystemExit) as exc:
+        helpers['check_outputs'].main(inputs, outputs)
+    assert exc.value.code == 1
+
+
+@pytest.mark.parametrize('mode', ['cwd-default', 'explicit', 'symlink', 'hardlink'])
+def test_publication_rejects_log_inside_source_before_any_push(helpers, tmp_path, monkeypatch, mode):
+    export = tmp_path / 'export'
+    export.mkdir()
+    (export / 'document.txt').write_text('Source document')
+    plan = tmp_path / 'plan.csv'
+    plan.write_text('name,source\ncontext/example,export\n')
+    monkeypatch.chdir(export)
+    args = [str(plan), '--registry', 's3://test-lake', '--yes']
+    if mode == 'explicit':
+        args += ['--log', str(export / 'generated.jsonl')]
+    elif mode in ('symlink', 'hardlink'):
+        link = tmp_path / 'log.jsonl'
+        if mode == 'symlink':
+            link.symlink_to(export / 'document.txt')
+        else:
+            link.hardlink_to(export / 'document.txt')
+        args += ['--log', str(link)]
+    def forbidden(*args):
+        pytest.fail('invalid log destination must fail before package construction')
+    monkeypatch.setattr(helpers['publish'], 'build', forbidden)
+    with pytest.raises(SystemExit) as exc:
+        helpers['publish'].main(args)
+    assert exc.value.code == 2
+    assert sorted(p.name for p in export.iterdir()) == ['document.txt']
+    assert (export / 'document.txt').read_text() == 'Source document'

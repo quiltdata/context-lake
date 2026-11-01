@@ -442,6 +442,11 @@ def render_markdown(
     )
 
 
+def reject_linked_output(target: Path) -> None:
+    if target.is_symlink() or (target.exists() and target.stat().st_nlink > 1):
+        raise TranscriptFormatError(f"output destination must not be linked: {target}")
+
+
 def write_new_file(
     target: Path,
     content: str | bytes,
@@ -453,6 +458,7 @@ def write_new_file(
 
     Bytes are written verbatim so a stored API response keeps its exact encoding.
     """
+    reject_linked_output(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     binary = isinstance(content, bytes)
     if overwrite:
@@ -970,6 +976,7 @@ def _preflight_artifacts(artifacts: Sequence[PublicationArtifact], *, overwrite:
     """Reject colliding, blocked, or protected destinations before publication."""
     planned: list[tuple[Path, Path]] = []
     for artifact in artifacts:
+        reject_linked_output(artifact.target)
         normalized = artifact.target.expanduser().resolve(strict=False)
         for previous_normalized, previous_target in planned:
             if (

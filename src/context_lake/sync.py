@@ -94,6 +94,21 @@ def plan(source, output, source_id):
                       **changes}
 
 
+def verify_revision(destination, manifest):
+    # Repeated content must reuse the exact immutable revision.
+    if (destination / 'manifest.json').is_symlink() or (destination / 'manifest.json').read_bytes() != encoded(manifest):
+        raise SyncError('existing revision metadata differs')
+    entries = list(destination.rglob('*'))
+    expected = {'manifest.json'} | {'files/' + entry['path'] for entry in manifest['files']}
+    actual = {path.relative_to(destination).as_posix() for path in entries if path.is_file()}
+    if any(path.is_symlink() or (not path.is_file() and not path.is_dir()) for path in entries) or actual != expected:
+        raise SyncError('existing revision contains unexpected or missing entries')
+    for entry in manifest['files']:
+        target = destination / 'files' / entry['path']
+        if target.is_symlink() or any(parent.is_symlink() for parent in target.parents) or digest(target) != entry['sha256']:
+            raise SyncError('existing revision content differs')
+
+
 def apply(source, output, source_id):
     """Copy a validated snapshot and atomically promote its pointer."""
     manifest, changes = plan(source, output, source_id)
@@ -110,45 +125,38 @@ def apply(source, output, source_id):
     destination = revisions / changes['revision']
     if destination.is_symlink():
         raise SyncError('revision must not be a symlink')
-    stage = Path(tempfile.mkdtemp(prefix='.pending-', dir=revisions))
+    stage = None
     try:
-        (stage / 'files').mkdir()
-        for entry in manifest['files']:
-            relative = entry['path']
-            target = stage / 'files' / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            origin = source / relative
-            if origin.is_symlink() or any(parent.is_symlink() for parent in origin.parents):
-                raise SyncError('source changed to a symlink while copying')
-            shutil.copyfile(origin, target)
-            if target.stat().st_size != entry['size'] or digest(target) != entry['sha256']:
-                raise SyncError('source changed while copying; rerun the plan')
-        (stage / 'manifest.json').write_bytes(encoded(manifest))
         if destination.exists():
-            # Repeated content must reuse the exact immutable revision.
-            if (destination / 'manifest.json').is_symlink() or (destination / 'manifest.json').read_bytes() != encoded(manifest):
-                raise SyncError('existing revision metadata differs')
-            entries = list(destination.rglob('*'))
-            expected = {'manifest.json'} | {'files/' + entry['path'] for entry in manifest['files']}
-            actual = {path.relative_to(destination).as_posix() for path in entries if path.is_file()}
-            if any(path.is_symlink() or (not path.is_file() and not path.is_dir()) for path in entries) or actual != expected:
-                raise SyncError('existing revision contains unexpected or missing entries')
-            for entry in manifest['files']:
-                target = destination / 'files' / entry['path']
-                if target.is_symlink() or any(parent.is_symlink() for parent in target.parents) or digest(target) != entry['sha256']:
-                    raise SyncError('existing revision content differs')
+            verify_revision(destination, manifest)
         else:
+            stage = Path(tempfile.mkdtemp(prefix='.pending-', dir=revisions))
+            (stage / 'files').mkdir()
+            for entry in manifest['files']:
+                relative = entry['path']
+                target = stage / 'files' / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                origin = source / relative
+                if origin.is_symlink() or any(parent.is_symlink() for parent in origin.parents):
+                    raise SyncError('source changed to a symlink while copying')
+                shutil.copyfile(origin, target)
+                if target.stat().st_size != entry['size'] or digest(target) != entry['sha256']:
+                    raise SyncError('source changed while copying; rerun the plan')
+            (stage / 'manifest.json').write_bytes(encoded(manifest))
             os.replace(stage, destination)
         pointer = encoded({'format': 1, 'source_id': source_id, 'revision': changes['revision']})
+        current_path = output / 'CURRENT.json'
+        if current_path.exists() and current_path.read_bytes() == pointer:
+            return changes
         descriptor, temporary = tempfile.mkstemp(prefix='.CURRENT-', dir=output)
         try:
             with os.fdopen(descriptor, 'wb') as stream:
                 stream.write(pointer)
-            os.replace(temporary, output / 'CURRENT.json')
+            os.replace(temporary, current_path)
         finally:
             Path(temporary).unlink(missing_ok=True)
     finally:
-        if stage.exists():
+        if stage is not None and stage.exists():
             shutil.rmtree(stage)
     return changes
 

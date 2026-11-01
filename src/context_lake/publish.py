@@ -80,6 +80,14 @@ def main(argv=None):
         rows = read_plan(args.plan)  # validate all rows before writing anything
     except ValueError as exc:
         parser.error(str(exc))
+    log_path = Path(args.log).expanduser().resolve()
+    if log_path.exists() and log_path.stat().st_nlink > 1:
+        parser.error('--log must not be a hard-linked file')
+    for row in rows:
+        if not row['source'].startswith('s3://'):
+            source = Path(row['source']).resolve()
+            if log_path == source or source in log_path.parents:
+                parser.error('--log must be outside every local publication source')
     for row in rows:
         if not args.yes:
             print(f'DRY RUN  {row["name"]} <- {row["source"]} -> {args.registry}')
@@ -92,7 +100,7 @@ def main(argv=None):
                           selector_fn=quilt3.Package.selector_fn_copy_local,
                           force=True, **kwargs)
         top_hash = pushed if isinstance(pushed, str) else pushed.top_hash
-        with Path(args.log).open('a') as fh:
+        with log_path.open('a') as fh:
             fh.write(json.dumps({'name': row['name'], 'registry': args.registry,
                                  'top_hash': top_hash}) + '\n')
         print(f'PUSHED {row["name"]}@{top_hash}')

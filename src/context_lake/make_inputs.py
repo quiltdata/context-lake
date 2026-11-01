@@ -30,6 +30,7 @@ import zipfile
 EXCERPT_CHARS = 8000      # cap on every excerpt (--excerpt-chars; 0 = no cap)
 PDF_PAGES = 20            # pages read from a PDF (--pdf-pages; 0 = all)
 PARENT = False            # --parent-abstract: add the `parent` column
+DOCX_XML_MAX_BYTES = 30_000_000  # expanded XML member bound, independent of compressed size
 TABLE_ROWS = 5            # data rows shown for tables
 MENTION_CONTEXT = 200     # characters either side of a mention
 MAX_MENTIONS = 5
@@ -123,7 +124,14 @@ def excerpt(bucket, key, size):
         return cap("\n".join(parts), f"first 8 rows of each of {min(len(wb.worksheets), 5)} of {len(wb.worksheets)} sheets")
     if ft == "docx" and size <= 30_000_000:
         z = zipfile.ZipFile(io.BytesIO(get(bucket, key)))
-        x = z.read("word/document.xml").decode("utf-8", "replace")
+        member = z.getinfo("word/document.xml")
+        if member.file_size > DOCX_XML_MAX_BYTES:
+            raise ValueError("DOCX document XML exceeds expanded-size limit")
+        with z.open(member) as stream:
+            raw_xml = stream.read(DOCX_XML_MAX_BYTES + 1)
+        if len(raw_xml) > DOCX_XML_MAX_BYTES:
+            raise ValueError("DOCX document XML exceeds expanded-size limit")
+        x = raw_xml.decode("utf-8", "replace")
         paras = [t for t in (html.unescape("".join(re.findall(r"<w:t[^>]*>([^<]*)</w:t>", p))).strip()
                              for p in re.findall(r"<w:p[ >].*?</w:p>", x, re.S)) if t]
         media = sum(1 for n in z.namelist() if n.startswith("word/media/"))
@@ -152,9 +160,7 @@ def excerpt(bucket, key, size):
         meta += [f"[{n - 3} more ##{k} lines omitted]" for k, n in seen.items() if n > 3]
         tail = "\n".join([line for line in data if line.startswith("#CHROM")] + [short(line) for line in data if not line.startswith("#")][:3])
         body = "\n".join(meta)
-        if EXCERPT_CHARS:
-            body = body[:max(0, EXCERPT_CHARS - len(tail) - 1)]
-        return "VCF header (at most 3 lines of each type, long lines shortened), column line and first 3 records", f"{body}\n{tail}"
+        return cap(f"{body}\n{tail}", "VCF header (at most 3 lines of each type, long lines shortened), column line and first 3 records")
     return None
 
 
