@@ -1,4 +1,5 @@
 """qcl is the only console command the package installs."""
+import shlex
 import sys
 from importlib.metadata import entry_points
 
@@ -21,5 +22,6 @@ def test_missing_extra_hint_targets_the_running_interpreter(monkeypatch, capsys)
     with pytest.raises(SystemExit):
         cli.main(['survey', 's3://bucket/prefix'])
     message = capsys.readouterr().err
-    assert f"uv pip install --python {sys.executable} 'quilt-context-lake[s3]'" in message
+    interpreter = shlex.quote(sys.executable)
+    assert f"uv pip install --python {interpreter} 'quilt-context-lake[s3]'" in message
     assert "uv tool install 'quilt-context-lake[s3]'" in message
