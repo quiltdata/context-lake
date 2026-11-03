@@ -1,6 +1,7 @@
 """Command interface; deterministic operations never invoke model adapters."""
 import argparse
 import importlib
+import shlex
 import sys
 
 from . import __version__
@@ -19,6 +20,16 @@ COMMANDS = {
 }
 EXTRAS = {'boto3': 's3', 'botocore': 's3', 'quilt3': 'quilt',
           'pypdf': 'formats', 'pyarrow': 'formats', 'openpyxl': 'formats'}
+
+
+def missing_extra_hint(extra):
+    """Name commands that add the extra to the environment running this CLI."""
+    package = shlex.quote(f'quilt-context-lake[{extra}]')
+    return (f"this operation requires the '{extra}' extra.\n"
+            f"  Install it into this environment:\n"
+            f"    uv pip install --python {shlex.quote(sys.executable)} {package}\n"
+            f"  Or, if qcl was installed with uv tool:\n"
+            f"    uv tool install {package}")
 
 
 def main(argv=None):
@@ -46,4 +57,4 @@ def main(argv=None):
         extra = EXTRAS.get(error.name)
         if not extra:
             raise
-        parser.error(f"this operation requires: pip install 'context-lake[{extra}]'")
+        parser.error(missing_extra_hint(extra))
