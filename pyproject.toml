@@ -3,7 +3,7 @@ requires = ["hatchling>=1.26"]
 build-backend = "hatchling.build"
 
 [project]
-name = "context-lake"
+name = "quilt-context-lake"
 version = "0.1.0"
 description = "Deterministic context automation: collect, normalize, index, reconcile and publish."
 readme = "README.md"
@@ -15,8 +15,7 @@ dependencies = ["jsonschema>=4"]
 Repository = "https://github.com/quiltdata/context-lake"
 
 [project.scripts]
-clake = "context_lake.cli:main"
-context-lake = "context_lake.cli:main"
+qcl = "context_lake.cli:main"
 
 [project.optional-dependencies]
 s3 = ["boto3>=1.35"]

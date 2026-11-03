@@ -1,4 +1,4 @@
-# Context Lake
+# Quilt Context Lake
 
 Deterministic context automation in Python: collect source material, normalize it,
 index it, reconcile changes and publish approved snapshots. Agents can invoke the
@@ -9,8 +9,8 @@ same commands as people. Model enrichment is optional and explicit.
 Python 3.10 or newer:
 
 ```bash
-uv tool install context-lake
-clake --help
+uv tool install quilt-context-lake
+qcl --help
 ```
 
 Until the first PyPI release, install from GitHub instead:
@@ -19,14 +19,13 @@ Until the first PyPI release, install from GitHub instead:
 uv tool install 'git+https://github.com/quiltdata/context-lake.git'
 ```
 
-Context Lake is what you install; `clake` is what you type. The package also
-installs `context-lake` as a verbose alias for the same command, so either name
-works in scripts. Neither installs a skill or starts a model.
+Install `quilt-context-lake`; type `qcl`. Installing does not add a skill or start a
+model. The Python import is `context_lake`.
 
 Optional dependencies are separated by operation:
 
 ```bash
-uv tool install 'context-lake[s3,formats,quilt,models]'
+uv tool install 'quilt-context-lake[s3,formats,quilt,models]'
 ```
 
 Use only the extras you need: `s3` for AWS inventory/extraction, `formats` for
@@ -40,10 +39,10 @@ Start with a directory of source documents or normalized connector exports:
 
 ```bash
 # Deterministic plan; no writes, credentials or model calls.
-clake sync ./source ./lake --source-id team-documents
+qcl sync ./source ./lake --source-id team-documents
 
 # Write an immutable content-addressed revision and promote CURRENT.json.
-clake sync ./source ./lake --source-id team-documents --apply
+qcl sync ./source ./lake --source-id team-documents --apply
 ```
 
 The plan reports added, changed and removed paths. Repeating the same input
@@ -79,12 +78,12 @@ Storage cleanup and retention policies are not yet automated.
 Each command has `--help`. Examples:
 
 ```bash
-clake email --input /work/threads.json --output-dir /work/gmail
-clake fathom --recording-id 123 --output-dir /work/fathom
-clake index --package-dir /work/fathom --output-dir /work/fathom
-clake survey s3://YOUR-BUCKET/approved/ --objects /work/objects.txt
-clake extract /work/objects.txt /work/inputs.csv
-clake publish /work/plan.csv --registry s3://YOUR-TARGET
+qcl email --input /work/threads.json --output-dir /work/gmail
+qcl fathom --recording-id 123 --output-dir /work/fathom
+qcl index --package-dir /work/fathom --output-dir /work/fathom
+qcl survey s3://YOUR-BUCKET/approved/ --objects /work/objects.txt
+qcl extract /work/objects.txt /work/inputs.csv
+qcl publish /work/plan.csv --registry s3://YOUR-TARGET
 ```
 
 Fathom accepts downloaded transcript text offline. Fetching recording IDs uses

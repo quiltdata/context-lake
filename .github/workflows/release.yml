@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/context-lake
+      url: https://pypi.org/p/quilt-context-lake
     permissions:
       id-token: write
     steps:

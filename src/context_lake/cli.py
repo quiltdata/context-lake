@@ -46,4 +46,4 @@ def main(argv=None):
         extra = EXTRAS.get(error.name)
         if not extra:
             raise
-        parser.error(f"this operation requires: pip install 'context-lake[{extra}]'")
+        parser.error(f"this operation requires: uv tool install 'quilt-context-lake[{extra}]'")
