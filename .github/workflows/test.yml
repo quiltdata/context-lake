@@ -12,24 +12,21 @@ jobs:
       matrix:
         python: ['3.10', '3.13']
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
         with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa  # v10.3.1
+        with:
+          version: '0.13.1'
           python-version: ${{ matrix.python }}
-      - run: pip install -e '.[dev,s3,formats,quilt,models]'
+          activate-environment: true
+      - run: uv pip install -e '.[dev,s3,formats,quilt,models]'
       - run: ruff check src tests
       - run: pytest -q
-      - run: python -m build
+      - run: uv build
       - name: Install and exercise the core wheel outside the checkout
-        run: |
-          python -m venv "$RUNNER_TEMP/core"
-          "$RUNNER_TEMP/core/bin/pip" install dist/*.whl
-          cd "$RUNNER_TEMP"
-          "$RUNNER_TEMP/core/bin/python" -I "$GITHUB_WORKSPACE/tests/wheel_smoke.py"
-          "$RUNNER_TEMP/core/bin/clake" --version
-          "$RUNNER_TEMP/core/bin/clake" --help | grep -q '^usage: clake'
-          "$RUNNER_TEMP/core/bin/context-lake" --version
-      - uses: actions/upload-artifact@v4
+        run: tests/wheel_smoke.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: context-lake-${{ matrix.python }}
           path: dist/
