@@ -10,11 +10,13 @@ Python 3.10 or newer:
 
 ```bash
 pip install 'git+https://github.com/quiltdata/context-lake.git'
-context-lake --help
+clake --help
 ```
 
-This installs the Python package and `context-lake` command. It does not install a
-skill or start a model. PyPI publication has not been configured.
+Context Lake is what you install; `clake` is what you type. The package also
+installs `context-lake` as a verbose alias for the same command, so either name
+works in scripts. Neither installs a skill or starts a model. PyPI publication has
+not been configured.
 
 Optional dependencies are separated by operation:
 
@@ -33,10 +35,10 @@ Start with a directory of source documents or normalized connector exports:
 
 ```bash
 # Deterministic plan; no writes, credentials or model calls.
-context-lake sync ./source ./lake --source-id team-documents
+clake sync ./source ./lake --source-id team-documents
 
 # Write an immutable content-addressed revision and promote CURRENT.json.
-context-lake sync ./source ./lake --source-id team-documents --apply
+clake sync ./source ./lake --source-id team-documents --apply
 ```
 
 The plan reports added, changed and removed paths. Repeating the same input
@@ -72,12 +74,12 @@ Storage cleanup and retention policies are not yet automated.
 Each command has `--help`. Examples:
 
 ```bash
-context-lake email --input /work/threads.json --output-dir /work/gmail
-context-lake fathom --recording-id 123 --output-dir /work/fathom
-context-lake index --package-dir /work/fathom --output-dir /work/fathom
-context-lake survey s3://YOUR-BUCKET/approved/ --objects /work/objects.txt
-context-lake extract /work/objects.txt /work/inputs.csv
-context-lake publish /work/plan.csv --registry s3://YOUR-TARGET
+clake email --input /work/threads.json --output-dir /work/gmail
+clake fathom --recording-id 123 --output-dir /work/fathom
+clake index --package-dir /work/fathom --output-dir /work/fathom
+clake survey s3://YOUR-BUCKET/approved/ --objects /work/objects.txt
+clake extract /work/objects.txt /work/inputs.csv
+clake publish /work/plan.csv --registry s3://YOUR-TARGET
 ```
 
 Fathom accepts downloaded transcript text offline. Fetching recording IDs uses
