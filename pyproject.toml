@@ -15,6 +15,7 @@ dependencies = ["jsonschema>=4"]
 Repository = "https://github.com/quiltdata/context-lake"
 
 [project.scripts]
+clake = "context_lake.cli:main"
 context-lake = "context_lake.cli:main"
 
 [project.optional-dependencies]

@@ -26,6 +26,9 @@ jobs:
           "$RUNNER_TEMP/core/bin/pip" install dist/*.whl
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/core/bin/python" -I "$GITHUB_WORKSPACE/tests/wheel_smoke.py"
+          "$RUNNER_TEMP/core/bin/clake" --version
+          "$RUNNER_TEMP/core/bin/clake" --help | grep -q '^usage: clake'
+          "$RUNNER_TEMP/core/bin/context-lake" --version
       - uses: actions/upload-artifact@v4
         with:
           name: context-lake-${{ matrix.python }}
