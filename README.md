@@ -9,19 +9,24 @@ same commands as people. Model enrichment is optional and explicit.
 Python 3.10 or newer:
 
 ```bash
-pip install 'git+https://github.com/quiltdata/context-lake.git'
+uv tool install context-lake
 clake --help
+```
+
+Until the first PyPI release, install from GitHub instead:
+
+```bash
+uv tool install 'git+https://github.com/quiltdata/context-lake.git'
 ```
 
 Context Lake is what you install; `clake` is what you type. The package also
 installs `context-lake` as a verbose alias for the same command, so either name
-works in scripts. Neither installs a skill or starts a model. PyPI publication has
-not been configured.
+works in scripts. Neither installs a skill or starts a model.
 
 Optional dependencies are separated by operation:
 
 ```bash
-pip install 'context-lake[s3,formats,quilt,models] @ git+https://github.com/quiltdata/context-lake.git'
+uv tool install 'context-lake[s3,formats,quilt,models]'
 ```
 
 Use only the extras you need: `s3` for AWS inventory/extraction, `formats` for
@@ -119,16 +124,31 @@ result = apply("./source", "./lake", source_id="team-documents")
 ## Development
 
 ```bash
-python -m venv .venv
+uv venv
 . .venv/bin/activate
-pip install -e '.[dev,s3,formats,quilt,models]'
+uv pip install -e '.[dev,s3,formats,quilt,models]'
 pytest -q
 ruff check src tests
-python -m build
+uv build
+tests/wheel_smoke.sh
 ```
 
 CI tests Python 3.10/3.13, builds wheel/sdist, installs the wheel in an isolated
 core-only environment, and runs a deterministic workflow outside the checkout.
+
+## Releasing
+
+Set the same version in `pyproject.toml` and `src/context_lake/__init__.py`, merge
+to `main`, then push a matching tag:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The release workflow checks that the tag matches both versions, builds and tests
+the wheel, and publishes to PyPI with `uv publish` through trusted publishing in
+the `pypi` environment. No API token is stored in GitHub.
 Tests use synthetic data and emulated S3; no live credentials or model calls.
 MIT licensed. Interfaces are preview quality; provenance/fidelity tests are
 retained while the package API evolves.
