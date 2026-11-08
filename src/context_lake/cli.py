@@ -9,7 +9,9 @@ from . import __version__
 COMMANDS = {
     'sync': ('sync', 'Reconcile a local source into versioned context snapshots'),
     'email': ('email_threads_to_markdown', 'Normalize saved Gmail threads to Markdown'),
+    'gmail': ('gmail_fetch', 'Fetch Gmail threads (OAuth, read-only) and export Markdown'),
     'fathom': ('fathom_to_markdown', 'Export approved Fathom recordings to Markdown'),
+    'schedule': ('schedule', 'Run qcl or other commands on a schedule (macOS launchd)'),
     'index': ('transcript_index', 'Build a deterministic transcript index'),
     'backfill': ('backfill_transcripts', 'Repair selected transcript placeholders'),
     'survey': ('survey', 'Inventory S3 objects without model calls'),

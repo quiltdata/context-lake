@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `qcl gmail` fetches threads matching a Gmail search through the Gmail API and
+  exports them with the same converter as `qcl email`. `qcl gmail login` runs a
+  one-time, read-only OAuth sign-in in the browser. When no authorization is
+  configured, or Google has revoked it, the command explains the Google Cloud
+  setup, links to Google's documentation, and in a terminal offers to open the
+  relevant console page.
+- `qcl schedule` installs, lists, starts, and removes macOS launchd jobs for
+  qcl commands or any other program, for example
+  `qcl schedule add gmail-daily --at 06:30 -- qcl gmail fetch ...`. Job output
+  goes to `~/Library/Logs/qcl/NAME.log` with timestamped start and exit lines,
+  and a failed run raises a macOS notification.
+
 ## [0.2.0] - 2026-11-02
 
 First release on PyPI.

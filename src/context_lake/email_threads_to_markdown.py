@@ -246,6 +246,32 @@ def convert(data):
     return rendered
 
 
+def thread_paths(output_dir, tids, *, overwrite=False, source=None):
+    """Return threads/ID.md destinations, refusing symlinks, the source and unrequested overwrites."""
+    output = Path(output_dir).resolve() / 'threads'
+    if output.is_symlink():
+        raise ThreadFormatError('threads directory must not be a symlink')
+    paths = [output / f'{identifier(tid, "thread id")}.md' for tid in tids]
+    for path in paths:
+        if path.is_symlink() or (source is not None and (
+                path.resolve() == Path(source).resolve()
+                or (path.exists() and path.samefile(source)))):
+            raise ThreadFormatError(f'refusing to replace source or symlink: {path}')
+        if path.exists() and not overwrite:
+            raise ThreadFormatError(f'output exists: {path}; use --overwrite')
+    return output, paths
+
+
+def write_threads(rendered, output_dir, *, overwrite=False, source=None):
+    """Write each rendered thread to output_dir/threads/ID.md after checking every destination."""
+    output, paths = thread_paths(output_dir, rendered, overwrite=overwrite, source=source)
+    output.mkdir(parents=True, exist_ok=True)
+    for path, text in zip(paths, rendered.values()):
+        with path.open('w' if overwrite else 'x', encoding='utf-8') as stream:
+            stream.write(text)
+    return output
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--input', required=True, type=Path, help='single thread, thread array, or {"threads": [...]} JSON')
@@ -254,22 +280,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         rendered = convert(json.loads(args.input.read_text(encoding='utf-8')))
-        root = args.output_dir.resolve()
-        output = root / 'threads'
-        if output.is_symlink():
-            raise ThreadFormatError('threads directory must not be a symlink')
-        paths = [(output / f'{tid}.md', text) for tid, text in rendered.items()]
-        for path, _ in paths:
-            if (path.resolve() == args.input.resolve() or path.is_symlink()
-                    or (path.exists() and path.samefile(args.input))):
-                raise ThreadFormatError(f'refusing to replace source or symlink: {path}')
-            if path.exists() and not args.overwrite:
-                raise ThreadFormatError(f'output exists: {path}; use --overwrite')
-        output.mkdir(parents=True, exist_ok=True)
-        for path, text in paths:
-            with path.open('w' if args.overwrite else 'x', encoding='utf-8') as stream:
-                stream.write(text)
-        print(f'Exported {len(paths)} threads to {output}', file=sys.stderr)
+        output = write_threads(rendered, args.output_dir, overwrite=args.overwrite, source=args.input)
+        print(f'Exported {len(rendered)} threads to {output}', file=sys.stderr)
         return 0
     except (OSError, ValueError, TypeError, AttributeError) as error:
         parser.error(str(error))
