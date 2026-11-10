@@ -503,3 +503,26 @@ def test_reply_below_wrapped_footer_keeps_footer(mail):
     assert mail.strip_quoted(body) == (body, None)
     unrelated = body.replace('\n\nMy bottom reply.', '\nMy bottom reply.')
     assert mail.strip_quoted(unrelated) == (unrelated, None)
+
+
+@pytest.mark.parametrize('reply', [
+    'To unsubscribe from this group, I tried the link but it failed. Can someone help?',
+    'To view this discussion I had to sign in twice.',
+])
+def test_reply_starting_like_footer_line_keeps_footer(mail, reply):
+    for blank in ('', '\n'):
+        body = ('Quoted digest.\n'
+                'You received this message because you are subscribed to the Google Groups "list" group.\n'
+                + blank + reply + '\n')
+        assert mail.strip_quoted(body) == (body, None)
+
+
+def test_footer_wrapped_inside_group_phrase_is_stripped(mail):
+    body = ("New text.\n\nOn Mon, Aug 31, 2026 at 7:57 AM Ben <ben@example.test> wrote:\n\n> old\n\n"
+            '--\nYou received this message because you are subscribed to the Google\n'
+            'Groups "list" group.\n'
+            'To unsubscribe from this group and stop receiving emails from it, send an email to\n'
+            'list+unsubscribe@groups.example.test.\n'
+            'To view this discussion visit https://groups.google.com/d/msgid/list/ABC_1%40mail.example.test.\n')
+    text, link = mail.strip_quoted(body)
+    assert text == 'New text.' and link.endswith('ABC_1%40mail.example.test')

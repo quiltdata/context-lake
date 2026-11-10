@@ -185,36 +185,27 @@ GROUPS_NAME_RE = re.compile(r'subscribed to the Google Groups "([^"]+)" group')
 GROUPS_LINK_RE = re.compile(r'To view this discussion visit (https://groups\.google\.com/d/msgid/[^\s<>]+)')
 QUOTE_INTRO_RE = re.compile(r'wrote:\s*$')
 SIGNATURE_DELIMITERS = ('--', '-- ')
-# Google Groups appends these lines after its footer; anything else after it means the
-# footer is quoted or collected content (e.g. a digest) and is kept.
-FOOTER_TAIL_PREFIXES = ('To unsubscribe from this group', 'To view this discussion')
-# A footer line wrapped by the sender's client continues on the next line with the rest of
-# Google's sentence, the unsubscribe address or the discussion URL; nothing else.
-FOOTER_CONTINUATION_RE = re.compile(
-    r'(?:[^"]*"\s*)?group\.'
-    r'|(?:and )?stop receiving emails from it,?(?: send an email to)?(?:\s+\S+@\S+)?'
-    r'|(?:send an email to\s+)?[^\s@]+@[^\s@]+\.[^\s@]+'
-    r'|(?:visit\s+)?<?https://groups\.google\.com/\S+')
+# Google Groups' footer, matched whole: its lines may be wrapped anywhere by the sender's
+# client, so they are joined and compared to the boilerplate, never matched by prefix.
+# Anything else after the footer (a bottom reply, a digest's next post) keeps it in place.
+GROUPS_FOOTER_TEXT_RE = re.compile(
+    r'You received this message because you are subscribed to the Google Groups "[^"]+" group\.'
+    r'(?: To unsubscribe from this group and stop receiving emails from it, send an email to'
+    r' [^\s@]+@[^\s@]+\.[^\s@]+?\.?)?'
+    r'(?: To view this discussion (?:on the web )?visit <?https://groups\.google\.com/\S+?>?\.?)?'
+    r'(?: For more options, visit <?https://groups\.google\.com/\S+?>?\.?)?')
 
 
-def footer_tail(lines):
-    """Whether the lines after a Groups footer are only Google's own footer lines.
-
-    A footer line or a wrapped continuation of one may follow; a blank line ends
-    continuation, so a reply written below the footer keeps the footer in place.
-    """
-    previous_blank = False
-    for line in lines:
-        text = line.strip()
-        if not text:
-            previous_blank = True
+def groups_footer(lines):
+    """Index of the line starting a Google Groups footer that ends the message, else None."""
+    for i in range(len(lines) - 1, -1, -1):
+        if lines[i].lstrip().startswith('>'):
             continue
-        if text.startswith(FOOTER_TAIL_PREFIXES):
-            previous_blank = False
+        if not lines[i].strip().startswith('You received this message'):
             continue
-        if previous_blank or not FOOTER_CONTINUATION_RE.fullmatch(text):
-            return False
-    return True
+        joined = ' '.join(line.strip() for line in lines[i:] if line.strip())
+        return i if GROUPS_FOOTER_TEXT_RE.fullmatch(joined) else None
+    return None
 
 
 def is_flat(message):
@@ -302,10 +293,7 @@ def strip_quoted(text, *, html_derived=False):
     if not html_derived:
         # Only a footer that ends the message is the list's own; footers inside the body
         # (a digest, a forwarded post) are content and stay.
-        footer = next((i for i in range(len(lines) - 1, -1, -1)
-                       if not lines[i].lstrip().startswith('>') and GROUPS_FOOTER_RE.search(lines[i])), None)
-        if footer is not None and not footer_tail(lines[footer + 1:]):
-            footer = None
+        footer = groups_footer(lines)
         if footer is not None:
             # Join the footer's lines so a URL wrapped after "visit" is still found.
             match = GROUPS_LINK_RE.search(' '.join(line.strip() for line in lines[footer:]))
