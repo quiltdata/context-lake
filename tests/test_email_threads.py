@@ -415,3 +415,91 @@ def test_footer_inside_body_is_content_not_stripped(mail):
     assert mail.strip_quoted(digest) == (digest, None)
     text, link = mail.strip_quoted('Reply.\n' + FOOTER + '\n')
     assert text == 'Reply.' and link.endswith('ABC_1%40mail.example.test')
+
+
+def mime(mid, to, body='Kept.', stamp='1000', **body_extra):
+    """A full-MIME message whose To header is given raw (possibly encoded)."""
+    data = base64.urlsafe_b64encode(body.encode()).decode().rstrip('=')
+    return {'id': mid, 'threadId': 't1', 'internalDate': stamp,
+            'payload': {'mimeType': 'text/plain',
+                        'headers': [{'name': 'From', 'value': 'a@example.test'},
+                                    {'name': 'To', 'value': to},
+                                    {'name': 'Subject', 'value': 'Re: [list] Boundaries'}],
+                        'body': body_extra or {'data': data}}}
+
+
+def test_list_filter_skips_off_list_mime_body_stored_separately(mail):
+    # An off-list reply whose body would need fetching must not block the list export.
+    private = mime('m2', 'a@example.test', stamp='2000', attachmentId='att9', size=42)
+    _, text = mail.render_thread(thread(mime('m1', LIST), private), list_address=LIST)
+    assert '## Message m1' in text and 'm2' not in text and '(1 of 2 supplied kept' in text
+    # A thread with no list recipients is skipped, not rejected.
+    assert mail.render_thread(thread(private), list_address=LIST) == ('t1', None)
+    # Without the filter, the same message still has to be fetched.
+    with pytest.raises(mail.ThreadFormatError, match='stored separately'):
+        mail.render_thread(thread(mime('m1', LIST), private))
+
+
+def test_list_filter_matches_raw_not_decoded_recipients(mail):
+    # The display name decodes to "list@groups.example.test, Alice"; the only mailbox is private.
+    encoded = '=?utf-8?q?list@groups.example.test=2C_Alice?= <private@example.test>'
+    assert 'list@groups.example.test, Alice' in mail.headers(mime('m2', encoded)['payload'])['to']
+    value = thread(mime('m1', LIST), mime('m2', encoded, 'Private.', stamp='2000'))
+    _, text = mail.render_thread(value, list_address=LIST)
+    assert 'Private.' not in text and '(1 of 2 supplied kept' in text
+    # The kept message still shows its decoded headers.
+    named = '=?utf-8?q?R=C3=A9sum=C3=A9_List?= <list@groups.example.test>'
+    _, text = mail.render_thread(thread(mime('m1', named)), list_address=LIST)
+    assert '- to: Résumé List &lt;list@groups.example.test&gt;' in text
+
+
+@pytest.mark.parametrize('address', ['', '   '])
+def test_empty_list_address_is_refused_not_unfiltered(mail, tmp_path, address):
+    source = tmp_path / 'threads.json'
+    source.write_text(json.dumps({'id': 't1', 'messages': [
+        flat('m1', 'On list.'), flat('m2', 'Private.', to=('a@example.test',), stamp='2000')]}))
+    with pytest.raises(SystemExit):
+        mail.main(['--input', str(source), '--output-dir', str(tmp_path / 'out'), '--list', address])
+    assert not (tmp_path / 'out').exists()
+    with pytest.raises(mail.ThreadFormatError, match='nonempty'):
+        mail.render_thread({'id': 't1', 'messages': [flat('m1', 'On list.')]}, list_address=address)
+
+
+@pytest.mark.parametrize('alias', [False, True])
+def test_list_cleanup_never_deletes_the_input(mail, tmp_path, alias):
+    out = tmp_path / 'out'
+    threads = out / 'threads'
+    threads.mkdir(parents=True)
+    data = json.dumps({'threads': [{'id': 't2', 'messages': [{**flat('m2', 'Kept.'), 'threadId': 't2'}]}]})
+    source = threads / 'source.md'
+    source.write_text(data)
+    given = source
+    if alias:
+        given = tmp_path / 'input.json'
+        given.hardlink_to(source)
+    with pytest.raises(SystemExit):
+        mail.main(['--input', str(given), '--output-dir', str(out), '--list', LIST, '--overwrite'])
+    assert source.read_text() == data and not (threads / 't2.md').exists()
+
+
+def test_wrapped_groups_footer_is_stripped_with_its_link(mail):
+    wrapped = ('Reply.\n\n--\n'
+               'You received this message because you are subscribed to the Google Groups "list"\n'
+               'group.\n'
+               'To unsubscribe from this group and stop receiving emails from it, send an email to\n'
+               'list+unsubscribe@groups.example.test.\n'
+               'To view this discussion visit\n'
+               'https://groups.google.com/d/msgid/list/ABC_1%40mail.example.test.\n')
+    text, link = mail.strip_quoted(wrapped)
+    assert text == 'Reply.' and link == 'https://groups.google.com/d/msgid/list/ABC_1%40mail.example.test'
+
+
+def test_reply_below_wrapped_footer_keeps_footer(mail):
+    body = ('Quoted digest.\n'
+            'You received this message because you are subscribed to the Google Groups "list" group.\n'
+            'To view this discussion visit\n'
+            'https://groups.google.com/d/msgid/list/ABC_1%40mail.example.test.\n\n'
+            'My bottom reply.\n')
+    assert mail.strip_quoted(body) == (body, None)
+    unrelated = body.replace('\n\nMy bottom reply.', '\nMy bottom reply.')
+    assert mail.strip_quoted(unrelated) == (unrelated, None)

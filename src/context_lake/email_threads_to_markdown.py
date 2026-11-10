@@ -74,6 +74,32 @@ def headers(payload):
     return result
 
 
+ROUTING_HEADERS = ('to', 'cc', 'bcc')
+
+
+def routing_headers(payload):
+    """Raw To/Cc/Bcc values, not MIME-decoded, for recipient matching.
+
+    Decoding first would let an encoded display name such as
+    "=?utf-8?q?list@example.test,_Alice?=" <private@example.test> read as two
+    mailboxes; encoded words appear only in display names, so the raw value
+    parses to the real addresses.
+    """
+    values = payload.get('headers', [])
+    if isinstance(values, dict):
+        values = [{'name': name, 'value': value} for name, value in values.items()]
+    if not isinstance(values, list):
+        raise ThreadFormatError('headers must be a list or object')
+    result = {}
+    for entry in values:
+        if not isinstance(entry, dict) or not isinstance(entry.get('name'), str) or not isinstance(entry.get('value'), str):
+            raise ThreadFormatError('each header needs string name and value')
+        name = entry['name'].lower()
+        if name in ROUTING_HEADERS:
+            result[name] = result.get(name, '') + (', ' if name in result else '') + entry['value']
+    return result
+
+
 def require_complete(obj):
     if any(obj.get(key) is True for key in ('content_truncated', 'truncated', 'is_truncated')):
         raise ThreadFormatError('input is marked truncated; fetch complete content before conversion')
@@ -162,6 +188,33 @@ SIGNATURE_DELIMITERS = ('--', '-- ')
 # Google Groups appends these lines after its footer; anything else after it means the
 # footer is quoted or collected content (e.g. a digest) and is kept.
 FOOTER_TAIL_PREFIXES = ('To unsubscribe from this group', 'To view this discussion')
+# A footer line wrapped by the sender's client continues on the next line with the rest of
+# Google's sentence, the unsubscribe address or the discussion URL; nothing else.
+FOOTER_CONTINUATION_RE = re.compile(
+    r'(?:[^"]*"\s*)?group\.'
+    r'|(?:and )?stop receiving emails from it,?(?: send an email to)?(?:\s+\S+@\S+)?'
+    r'|(?:send an email to\s+)?[^\s@]+@[^\s@]+\.[^\s@]+'
+    r'|(?:visit\s+)?<?https://groups\.google\.com/\S+')
+
+
+def footer_tail(lines):
+    """Whether the lines after a Groups footer are only Google's own footer lines.
+
+    A footer line or a wrapped continuation of one may follow; a blank line ends
+    continuation, so a reply written below the footer keeps the footer in place.
+    """
+    previous_blank = False
+    for line in lines:
+        text = line.strip()
+        if not text:
+            previous_blank = True
+            continue
+        if text.startswith(FOOTER_TAIL_PREFIXES):
+            previous_blank = False
+            continue
+        if previous_blank or not FOOTER_CONTINUATION_RE.fullmatch(text):
+            return False
+    return True
 
 
 def is_flat(message):
@@ -169,8 +222,8 @@ def is_flat(message):
     return 'payload' not in message and any(key in message for key in FLAT_MARKERS)
 
 
-def flat_content(message, mid):
-    """Return header values, text bodies and attachment metadata for a connector message."""
+def flat_values(message, mid):
+    """Return header values for a connector message without reading its bodies."""
     values = {}
     for key, camel, snake in FLAT_ADDRESS_FIELDS:
         value = field(message, camel, snake)
@@ -186,6 +239,11 @@ def flat_content(message, mid):
             if not isinstance(message[key], str):
                 raise ThreadFormatError(f'message {mid} {key} must be a string')
             values[key] = message[key]
+    return values
+
+
+def flat_bodies(message, mid):
+    """Return text bodies and attachment metadata for a connector message."""
     plain, markup = field(message, 'plaintextBody', 'plaintext_body'), field(message, 'htmlBody', 'html_body')
     texts = []
     # Prefer nonempty plain text, then nonempty HTML (same rule as the MIME path).
@@ -206,7 +264,7 @@ def flat_content(message, mid):
     attachments = message.get('attachments') or []
     if not isinstance(attachments, list) or not all(isinstance(item, dict) for item in attachments):
         raise ThreadFormatError(f'message {mid} attachments must be a list of objects')
-    return values, texts, [{'filename': item.get('filename') or '(unnamed)',
+    return texts, [{'filename': item.get('filename') or '(unnamed)',
                             'mime_type': field(item, 'mimeType', 'mime_type'),
                             'attachment_id': item.get('id'), 'part_id': field(item, 'partId', 'part_id')}
                            for item in attachments]
@@ -246,11 +304,11 @@ def strip_quoted(text, *, html_derived=False):
         # (a digest, a forwarded post) are content and stay.
         footer = next((i for i in range(len(lines) - 1, -1, -1)
                        if not lines[i].lstrip().startswith('>') and GROUPS_FOOTER_RE.search(lines[i])), None)
-        if footer is not None and not all(line.strip().startswith(FOOTER_TAIL_PREFIXES)
-                                          for line in lines[footer + 1:] if line.strip()):
+        if footer is not None and not footer_tail(lines[footer + 1:]):
             footer = None
         if footer is not None:
-            match = next((GROUPS_LINK_RE.search(line) for line in lines[footer:] if GROUPS_LINK_RE.search(line)), None)
+            # Join the footer's lines so a URL wrapped after "visit" is still found.
+            match = GROUPS_LINK_RE.search(' '.join(line.strip() for line in lines[footer:]))
             link = match[1].rstrip('.') if match else None
             start = next((i for i in range(footer - 1, max(-1, footer - 5), -1) if lines[i] in SIGNATURE_DELIMITERS),
                          footer)
@@ -314,6 +372,18 @@ def message_time(message, values):
     return None
 
 
+def checked_list_address(address):
+    """None for no filter; otherwise the stripped address, which must be nonempty.
+
+    An empty --list (an unset shell variable, say) must not become an unfiltered export.
+    """
+    if address is None:
+        return None
+    if not isinstance(address, str) or not address.strip():
+        raise ThreadFormatError('--list needs a nonempty mailing list address')
+    return address.strip()
+
+
 def render_thread(thread, list_address=None, strip_quotes=True, groups=None):
     """Render one thread; returns (thread id, Markdown or None when --list leaves no message).
 
@@ -327,8 +397,10 @@ def render_thread(thread, list_address=None, strip_quotes=True, groups=None):
     messages = thread.get('messages')
     if not isinstance(messages, list) or not messages:
         raise ThreadFormatError(f'thread {tid} has no messages; snippets are insufficient')
+    list_address = checked_list_address(list_address)
     seen = set()
     records = []
+    supplied = 0
     for message in messages:
         if not isinstance(message, dict):
             raise ThreadFormatError('message must be an object')
@@ -339,23 +411,30 @@ def render_thread(thread, list_address=None, strip_quotes=True, groups=None):
         seen.add(mid)
         if field(message, 'threadId', 'thread_id', tid) != tid:
             raise ThreadFormatError(f'message {mid} belongs to another thread')
+        supplied += 1
         if is_flat(message):
-            values, texts, attachments = flat_content(message, mid)
+            values = flat_values(message, mid)
+            routing = values
         else:
             payload = message.get('payload')
             if not isinstance(payload, dict):
                 raise ThreadFormatError(f'message {mid} needs a full MIME payload')
             values = headers(payload)
+            routing = routing_headers(payload)
+        # Match recipients before reading bodies or dates, so an off-list message that
+        # cannot be rendered (a separately stored body, say) never blocks the export.
+        if list_address is not None and not addressed_to(routing, list_address):
+            continue
+        if is_flat(message):
+            texts, attachments = flat_bodies(message, mid)
+        else:
             texts, attachments = mime_content(payload)
         records.append((message_time(message, values), mid, message, values, texts, attachments))
         if groups is not None:
             groups.update(match[1] for _, text in texts for line in text.splitlines()
                           if not line.lstrip().startswith('>') for match in GROUPS_NAME_RE.finditer(line))
-    supplied = len(records)
-    if list_address:
-        records = [record for record in records if addressed_to(record[3], list_address)]
-        if not records:
-            return tid, None
+    if list_address is not None and not records:
+        return tid, None
     for record in records:
         if is_flat(record[2]) and not record[4]:
             raise ThreadFormatError(f'message {record[1]} has no text body; fetch it with a body format')
@@ -376,7 +455,7 @@ def render_thread(thread, list_address=None, strip_quotes=True, groups=None):
     reported = field(thread, 'messageCount', 'message_count')
     if isinstance(reported, int) and reported != supplied:
         lines.append(f'- Gmail message count: {reported} ({supplied} supplied; drafts, trash and spam are not returned)')
-    if list_address:
+    if list_address is not None:
         lines.append(f'- List filter: only messages addressed to {safe(list_address)} '
                      f'({len(records)} of {supplied} supplied kept; off-list replies omitted)')
     quoting = ('quoted reply history and Google Groups footers stripped; inline replies kept'
@@ -454,16 +533,22 @@ def main(argv=None):
     args = parser.parse_args(argv)
     groups = set()
     try:
+        args.list_address = checked_list_address(args.list_address)
         rendered = convert(json.loads(args.input.read_text(encoding='utf-8')), args.list_address,
                            not args.keep_quotes, groups)
-        if groups and not args.list_address:
+        if groups and args.list_address is None:
             print(f'warning: {list_hint(groups)}', file=sys.stderr)
         root = args.output_dir.resolve()
         output = root / 'threads'
         if output.is_symlink():
             raise ThreadFormatError('threads directory must not be a symlink')
-        if args.list_address:
+        stale = []
+        if args.list_address is not None:
             stale = reconcile_filtered_output(output, rendered)
+            for path in stale:
+                if (path.resolve() == args.input.resolve()
+                        or (path.exists() and path.samefile(args.input))):
+                    raise ThreadFormatError(f'refusing to remove the input as a stale thread file: {path}')
             if stale and not args.overwrite:
                 names = ', '.join(path.name for path in stale[:5])
                 more = f' (+{len(stale) - 5} more)' if len(stale) > 5 else ''
@@ -482,15 +567,16 @@ def main(argv=None):
             with path.open('w' if args.overwrite else 'x', encoding='utf-8') as stream:
                 stream.write(text)
         removed = 0
-        if args.list_address and args.overwrite:
-            for path in reconcile_filtered_output(output, rendered):
+        if args.overwrite:
+            # Checked against the input above, before anything was written.
+            for path in stale:
                 path.unlink()
                 removed += 1
         note = f' (removed {removed} stale)' if removed else ''
         print(f'Exported {len(paths)} threads to {output}{note}', file=sys.stderr)
         return 0
     except (OSError, ValueError, TypeError, AttributeError) as error:
-        hint = f' ({list_hint(groups)})' if groups and not args.list_address else ''
+        hint = f' ({list_hint(groups)})' if groups and args.list_address is None else ''
         parser.error(f'{error}{hint}')
 
 
