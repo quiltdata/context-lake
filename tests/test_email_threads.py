@@ -34,7 +34,7 @@ def thread(*messages):
 def test_metadata_exact_body_chronology_and_source_preservation(mail):
     value = thread(message('m2', 'Later message', '2000'), message())
     before = json.dumps(value)
-    tid, text = mail.render_thread(value)
+    tid, text = mail.render_thread(value, strip_quotes=False)
     assert tid == 't1' and text.startswith('# Review ✓')
     assert 'Dose: 10⁶ cells at −20 °C.\n> Prior reply\n' in text
     assert text.index('## Message m1') < text.index('## Message m2')
@@ -226,3 +226,192 @@ def test_metadata_only_payload_is_rejected(mail, mime):
 def test_truncated_wrapper_is_rejected_before_unwrapping(mail):
     with pytest.raises(mail.ThreadFormatError, match='truncated'):
         mail.convert({'threads': [thread()], 'content_truncated': True})
+
+
+LIST = 'list@groups.example.test'
+FOOTER = ('\n--\nInvite friends: http://example.test/join\n---\n'
+          'You received this message because you are subscribed to the Google Groups "list" group.\n'
+          'To unsubscribe from this group and stop receiving emails from it, send an email to x@example.test.\n'
+          'To view this discussion visit https://groups.google.com/d/msgid/list/ABC_1%40mail.example.test.')
+
+
+def flat(mid, body=None, to=(LIST,), cc=(), stamp='1000', **extra):
+    """A Gmail connector message: flattened fields, no MIME payload."""
+    value = {'id': mid, 'threadId': 't1', 'sender': 'a@example.test', 'toRecipients': list(to),
+             'ccRecipients': list(cc), 'date': '2026-08-31T05:35:27Z', 'internalDate': stamp,
+             'subject': 'Re: [list] Boundaries', **extra}
+    if body is not None:
+        value['plaintextBody'] = body
+    return value
+
+
+def test_connector_flat_message_renders_headers_body_and_attachments(mail):
+    value = {'id': 't1', 'messages': [flat('m1', 'Exact  words.\n', attachments=[
+        {'filename': 'shot.png', 'mimeType': 'image/png', 'partId': '1.1', 'id': 'att1'}])]}
+    _, text = mail.render_thread(value, strip_quotes=False)
+    assert f'- to: {LIST}' in text and '- from: a@example.test' in text
+    assert '```text\nExact  words.\n\n```' in text
+    assert '"filename": "shot.png"' in text and '"part\\_id": "1.1"' in text
+
+
+def test_flat_empty_plaintext_falls_back_to_html(mail):
+    msg = flat('m1')
+    msg['plaintextBody'] = '  \n'
+    msg['htmlBody'] = '<p>Substantive</p>'
+    _, text = mail.render_thread({'id': 't1', 'messages': [msg]}, strip_quotes=False)
+    assert 'Body (html-derived)' in text and 'Substantive' in text
+
+
+def test_list_filter_drops_off_list_replies_and_reports_counts(mail):
+    value = {'id': 't1', 'messageCount': 4, 'messages': [
+        flat('m1', 'To the list.'), flat('m2', to=('a@example.test',), stamp='2000'),
+        flat('m3', 'Cc the list.', to=('b@example.test',), cc=(LIST.upper(),), stamp='3000')]}
+    _, text = mail.render_thread(value, list_address=LIST, strip_quotes=False)
+    assert '## Message m1' in text and '## Message m3' in text and 'm2' not in text
+    assert '(2 of 3 supplied kept; off-list replies omitted)' in text
+    assert '- Gmail message count: 4 (3 supplied' in text
+
+
+def test_list_filter_uses_exact_mailbox_not_substring(mail):
+    similar = 'notlist@groups.example.test'
+    display = '"list@groups.example.test" <person@example.test>'
+    value = {'id': 't1', 'messages': [
+        flat('m1', 'On list.'),
+        flat('m2', 'Similar domain.', to=(similar,), stamp='2000'),
+        flat('m3', 'Display name only.', to=(display,), stamp='3000'),
+    ]}
+    _, text = mail.render_thread(value, list_address=LIST, strip_quotes=False)
+    assert '## Message m1' in text and 'm2' not in text and 'm3' not in text
+    assert '(1 of 3 supplied kept' in text
+
+
+def test_list_filter_skips_threads_without_list_messages(mail, tmp_path):
+    source = tmp_path / 'threads.json'
+    source.write_text(json.dumps({'threads': [
+        {'id': 't1', 'messages': [flat('m1', to=('a@example.test',))]},
+        {'id': 't2', 'messages': [{**flat('m2', 'Kept.'), 'threadId': 't2'}]}]}))
+    assert mail.main(['--input', str(source), '--output-dir', str(tmp_path / 'out'),
+                      '--list', LIST, '--keep-quotes']) == 0
+    assert [p.name for p in (tmp_path / 'out' / 'threads').iterdir()] == ['t2.md']
+
+
+def test_list_overwrite_removes_stale_thread_files(mail, tmp_path):
+    source = tmp_path / 'threads.json'
+    out = tmp_path / 'out'
+    threads = out / 'threads'
+    threads.mkdir(parents=True)
+    (threads / 'old.md').write_text('private off-list mail')
+    (threads / 't2.md').write_text('previous')
+    source.write_text(json.dumps({'threads': [
+        {'id': 't2', 'messages': [{**flat('m2', 'Kept.'), 'threadId': 't2'}]}]}))
+    with pytest.raises(SystemExit):
+        mail.main(['--input', str(source), '--output-dir', str(out), '--list', LIST, '--keep-quotes'])
+    assert (threads / 'old.md').read_text() == 'private off-list mail'
+    assert mail.main(['--input', str(source), '--output-dir', str(out),
+                      '--list', LIST, '--keep-quotes', '--overwrite']) == 0
+    assert [p.name for p in threads.iterdir()] == ['t2.md']
+    assert 'Kept.' in (threads / 't2.md').read_text()
+
+
+def test_kept_flat_message_without_body_is_rejected(mail):
+    with pytest.raises(mail.ThreadFormatError, match='m1 has no text body'):
+        mail.render_thread({'id': 't1', 'messages': [flat('m1')]}, list_address=LIST)
+
+
+def test_iso8601_connector_date_orders_without_internal_date(mail):
+    msg = flat('m1', 'Body.')
+    msg.pop('internalDate')
+    _, text = mail.render_thread({'id': 't1', 'messages': [msg]}, strip_quotes=False)
+    assert '- Order: chronological' in text
+    assert '2026-08-31T05:35:27Z' in text
+
+
+@pytest.mark.parametrize('body, expected', [
+    ('New text.\n\nOn Mon, Aug 31, 2026 at 7:57 AM Ben <ben@example.test> wrote:\n\n> old\n>\n> older\n',
+     'New text.'),
+    ("New text.\n\nOn Sun, Aug 30, 2026 at 10:40 PM 'Ernest' via list <\nlist@groups.example.test> wrote:\n\n> old\n"
+     + FOOTER, 'New text.'),
+    ('Thanks!\n\n> On Aug 30, 2026, at 10:40 PM, Adam <adam@example.test> wrote:\n>\n> old\n', 'Thanks!'),
+    ('+1\n\n+1 555 0100\n--\n\nOn Mon, Aug 31, 2026 at 7:57 AM Ben wrote:\n\n> old\n', '+1\n\n+1 555 0100'),
+    ('Hi,\n\n> quoted question\n\nMy answer.\n\n> second question\n\nSecond answer.\n',
+     'Hi,\n\n> quoted question\n\nMy answer.\n\n> second question\n\nSecond answer.\n'),
+    ('> entirely quoted\n> forward\n', '> entirely quoted\n> forward\n'),
+])
+def test_strip_quoted_keeps_new_and_inline_text(mail, body, expected):
+    assert mail.strip_quoted(body)[0] == expected
+
+
+def test_strip_quotes_records_groups_link_unescaped(mail):
+    value = {'id': 't1', 'messages': [flat('m1', 'Reply.\n' + FOOTER)]}
+    _, text = mail.render_thread(value, list_address=LIST, strip_quotes=True)
+    assert '- groups-link: <https://groups.google.com/d/msgid/list/ABC_1%40mail.example.test>' in text
+    assert 'You received this message' not in text and '```text\nReply.\n```' in text
+    assert 'quoted reply history and Google Groups footers stripped' in text
+
+
+def test_html_derived_footer_does_not_drop_bottom_reply(mail):
+    # VisibleHTML flattens <blockquote>; footer rule must not erase a trailing reply.
+    html = ('<blockquote><p>You received this message because you are subscribed to the Google Groups '
+            '"list" group.</p><p>To view this discussion visit '
+            'https://groups.google.com/d/msgid/list/ABC_1%40mail.example.test.</p></blockquote>'
+            '<p>My bottom reply</p>')
+    msg = flat('m1')
+    msg.pop('plaintextBody', None)
+    msg['htmlBody'] = html
+    _, text = mail.render_thread({'id': 't1', 'messages': [msg]}, strip_quotes=True)
+    assert 'My bottom reply' in text
+
+
+def test_quotes_and_footers_kept_when_stripping_is_off(mail):
+    _, text = mail.render_thread({'id': 't1', 'messages': [flat('m1', 'Reply.\n' + FOOTER)]}, strip_quotes=False)
+    assert 'You received this message' in text and 'quoted history retained' in text
+
+
+def test_stripping_leaves_unquoted_text_byte_identical(mail):
+    for body in ('Exact  words.\n', 'Trailing blanks\n\n\n', 'No newline', '-- \nSignature only\n'):
+        assert mail.strip_quoted(body) == (body, None)
+
+
+def test_cli_strips_quotes_by_default_and_keep_quotes_opts_out(mail, tmp_path):
+    source = tmp_path / 'threads.json'
+    source.write_text(json.dumps({'id': 't1', 'messages': [flat('m1', 'Reply.\n\nOn Mon Ben wrote:\n\n> old\n')]}))
+    assert mail.main(['--input', str(source), '--output-dir', str(tmp_path / 'a')]) == 0
+    assert '> old' not in (tmp_path / 'a' / 'threads' / 't1.md').read_text()
+    assert mail.main(['--input', str(source), '--output-dir', str(tmp_path / 'b'), '--keep-quotes']) == 0
+    assert '> old' in (tmp_path / 'b' / 'threads' / 't1.md').read_text()
+
+
+def test_cli_warns_when_group_mail_has_no_list_filter(mail, tmp_path, capsys):
+    source = tmp_path / 'threads.json'
+    source.write_text(json.dumps({'id': 't1', 'messages': [flat('m1', 'Reply.\n' + FOOTER)]}))
+    assert mail.main(['--input', str(source), '--output-dir', str(tmp_path / 'a'), '--keep-quotes']) == 0
+    assert 'warning: messages carry Google Groups footers ("list")' in capsys.readouterr().err
+    assert mail.main(['--input', str(source), '--output-dir', str(tmp_path / 'b'),
+                      '--list', LIST, '--keep-quotes']) == 0
+    assert 'warning' not in capsys.readouterr().err
+
+
+def test_quoted_group_footer_alone_does_not_warn(mail, tmp_path, capsys):
+    source = tmp_path / 'threads.json'
+    quoted = '\n'.join('> ' + line for line in FOOTER.splitlines())
+    source.write_text(json.dumps({'id': 't1', 'messages': [flat('m1', 'Reply.\n\nOn Mon Ben wrote:\n' + quoted)]}))
+    assert mail.main(['--input', str(source), '--output-dir', str(tmp_path / 'a'), '--keep-quotes']) == 0
+    assert 'warning' not in capsys.readouterr().err
+
+
+def test_missing_body_error_suggests_list_for_group_mail(mail, tmp_path, capsys):
+    source = tmp_path / 'threads.json'
+    source.write_text(json.dumps({'id': 't1', 'messages': [
+        flat('m1', 'Reply.\n' + FOOTER), flat('m2', to=('a@example.test',), stamp='2000')]}))
+    with pytest.raises(SystemExit):
+        mail.main(['--input', str(source), '--output-dir', str(tmp_path / 'a'), '--keep-quotes'])
+    err = capsys.readouterr().err
+    assert 'm2 has no text body' in err and 'Pass --list ADDRESS' in err
+
+
+def test_footer_inside_body_is_content_not_stripped(mail):
+    digest = ('Topic: One\n\nFirst post.\n' + FOOTER + '\n\nTopic: Two\n\nSecond post.\n\n--\n'
+              'You received this digest because you are subscribed to updates for this group.\n')
+    assert mail.strip_quoted(digest) == (digest, None)
+    text, link = mail.strip_quoted('Reply.\n' + FOOTER + '\n')
+    assert text == 'Reply.' and link.endswith('ABC_1%40mail.example.test')

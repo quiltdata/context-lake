@@ -64,7 +64,7 @@ Storage cleanup and retention policies are not yet automated.
 
 | Command | Operation | Network / model use |
 |---|---|---|
-| `email` | Saved Gmail MIME thread JSON → faithful Markdown | Offline; no model |
+| `email` | Saved Gmail/API or connector thread JSON → Markdown; `--list` for list archives | Offline; no model |
 | `fathom` | Approved recording IDs or saved transcript → Markdown | API only when IDs are fetched; no model |
 | `index` | Transcript metadata, terms and themes → INDEX.md | Offline; no model |
 | `backfill` | Repair explicitly selected empty transcript placeholders | Explicit Fathom reads; no model |
@@ -95,10 +95,16 @@ an optional interface; the package owns behavior, validation and automation.
 ### Fidelity and current boundaries
 
 Email conversion takes full Gmail thread objects (single, array, or `threads`
-envelope), not snippets or raw RFC email. It preserves supplied message IDs,
-routing/reply/date headers and plain text. HTML-only messages yield explicitly
-marked derived text. Attachments are listed, not fetched; exports cannot prove
-completeness beyond the messages supplied. Explicit truncation markers fail.
+envelope), including Gmail connector flattened messages (`sender`,
+`toRecipients`/`ccRecipients`, `plaintextBody`/`htmlBody`), not snippets or raw
+RFC email. It preserves supplied message IDs, routing/reply/date headers and
+plain text. Quoted reply history and Google Groups footers are stripped by
+default (`--keep-quotes` to keep them). `--list ADDRESS` keeps only messages
+addressed to that list (exact mailbox match) and, with `--overwrite`, removes
+stale thread files so private off-list mail cannot remain in the output
+directory. HTML-only messages yield explicitly marked derived text. Attachments
+are listed, not fetched; exports cannot prove completeness beyond the messages
+supplied. Explicit truncation markers fail.
 
 Fathom import and indexing preserve timestamped source links and support quoted
 meeting titles. Backfill is scoped to an explicit package directory, with preview,
